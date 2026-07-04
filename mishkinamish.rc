@@ -1,0 +1,333 @@
+﻿// Microsoft Visual C++ generated resource script.
+
+//
+
+#include "resource.h"
+
+#include <windows.h>
+
+/////////////////////////////////////////////////////////////////////////////
+
+// Русский (Россия) resources
+
+
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_RUS)
+
+LANGUAGE 19, 1
+
+
+
+/////////////////////////////////////////////////////////////////////////////
+
+//
+
+// Icon
+
+//
+
+
+
+// Icon with lowest ID value placed first to ensure application icon
+
+// remains consistent on all systems.
+
+IDI_ICON1               ICON                    "icon1.ico"
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////
+
+//
+
+// Dialog
+
+//
+
+
+
+IDD_DIALOG1 DIALOGEX 0, 0, 311, 349
+
+STYLE WS_MINIMIZEBOX | WS_POPUP | WS_CAPTION | WS_SYSMENU
+
+CAPTION "Mishkina Mish - draft #13"
+
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+
+BEGIN
+
+    DEFPUSHBUTTON   "Запустить",IDOK,7,5,50,14
+
+    PUSHBUTTON      "Выход",IDCANCEL,253,167,50,14
+
+    COMBOBOX        IDC_COMBO_MIC,157,7,146,81,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    RTEXT           "Микрофон:",IDC_STATIC_WHICH_MIC,86,9,69,8
+
+    RTEXT           "Уровень:",-1,122,26,47,9
+
+    RTEXT           """Eh""",-1,93,50,15,9
+
+    RTEXT           """Eee""",-1,44,77,16,9
+
+    RTEXT           """Ah""",-1,154,78,15,9
+
+    RTEXT           """Oh""",-1,93,103,15,9
+
+    RTEXT           """K""",-1,17,130,41,9
+
+    RTEXT           """Ch""",-1,127,129,41,9
+
+    PUSHBUTTON      "Тренировать",IDC_BUTTON_TRAIN0,7,88,50,14
+
+    PUSHBUTTON      "Тренировать",IDC_BUTTON_TRAIN1,58,113,50,14
+
+    PUSHBUTTON      "Тренировать",IDC_BUTTON_TRAIN3,57,61,50,14
+
+    PUSHBUTTON      "Тренировать",IDC_BUTTON_TRAIN4,22,143,50,14
+
+    PUSHBUTTON      "Тренировать",IDC_BUTTON_TRAIN5,132,143,50,14
+
+    PUSHBUTTON      "Тренировать",IDC_BUTTON_TRAIN2,122,88,50,14
+
+    DEFPUSHBUTTON   "Сохранить",IDC_BUTTON_SAVE,49,167,145,14
+
+    DEFPUSHBUTTON   "Сохранить как",IDC_BUTTON_SAVE_AS,229,102,74,14,NOT WS_VISIBLE
+
+    DEFPUSHBUTTON   "Загрузить",IDC_BUTTON_LOAD,229,121,74,14,NOT WS_VISIBLE
+
+    LTEXT           "",IDC_STATIC_GROM,141,39,162,39
+
+    CONTROL         "",IDC_STATIC_BMP0,"Static",SS_BITMAP,2,74,15,13,WS_EX_TRANSPARENT
+
+    CONTROL         "",IDC_STATIC_BMP1,"Static",SS_BITMAP,60,99,15,13,WS_EX_TRANSPARENT
+
+    CONTROL         "",IDC_STATIC_BMP2,"Static",SS_BITMAP,110,74,15,13,WS_EX_TRANSPARENT
+
+    CONTROL         "",IDC_STATIC_BMP3,"Static",SS_BITMAP,53,47,15,13,WS_EX_TRANSPARENT
+
+    CONTROL         "",IDC_STATIC_BMP4,"Static",SS_BITMAP,26,128,15,13,WS_EX_TRANSPARENT
+
+    CONTROL         "",IDC_STATIC_BMP5,"Static",SS_BITMAP,134,128,15,13,WS_EX_TRANSPARENT
+
+    CONTROL         "",IDC_STATIC_BMP6,"Static",SS_BITMAP,122,44,15,13,WS_EX_TRANSPARENT
+
+    GROUPBOX        "Настройки",IDC_STATIC_SETTINGS,7,190,296,43
+
+    CONTROL         "повтор",IDC_CHECK_REPEAT0,"Button",BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,67,21,40,12
+
+    DEFPUSHBUTTON   "Сохранить как WAV",IDC_BUTTON_WAV_DUMP,208,140,96,14,WS_DISABLED
+
+    CONTROL         "",IDC_STATIC_BMP_UP,"Static",SS_BITMAP,74,45,15,13,WS_EX_TRANSPARENT
+
+    CONTROL         "",IDC_STATIC_BMP_LEFT,"Static",SS_BITMAP,25,73,15,13,WS_EX_TRANSPARENT
+
+    CONTROL         "",IDC_STATIC_BMP_DOWN,"Static",SS_BITMAP,76,98,15,13,WS_EX_TRANSPARENT
+
+    CONTROL         "",IDC_STATIC_BMP_RIGHT,"Static",SS_BITMAP,133,73,15,13,WS_EX_TRANSPARENT
+
+    GROUPBOX        "Нажимать клавиши вместо мыши",IDC_STATIC_SETTINGS2,7,235,296,105
+
+    COMBOBOX        IDC_KBD0,7,24,53,500,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    COMBOBOX        IDC_KBD1,53,300,53,101,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    COMBOBOX        IDC_KBD2,118,273,53,101,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    COMBOBOX        IDC_KBD3,60,251,53,101,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    COMBOBOX        IDC_KBD4,22,325,53,101,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    COMBOBOX        IDC_KBD5,125,325,53,101,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    CONTROL         "Ignore K and Ch sounds when detected within other sounds.",IDC_CHECK_IGNORE_KC_INLINE,
+
+                    "Button",BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,22,204,280,23
+
+    CONTROL         "повтор",IDC_CHECK_REPEAT1,"Button",BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,110,297,40,12
+
+    CONTROL         "повтор",IDC_CHECK_REPEAT2,"Button",BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,176,269,40,12
+
+    CONTROL         "повтор",IDC_CHECK_REPEAT3,"Button",BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,118,245,40,12
+
+    LTEXT           "Нажать и отпустить",-1,7,158,81,8
+
+    LTEXT           "Нажать и держать",-1,127,158,56,8
+
+    CONTROL         "удержание",IDC_CHECK_TOGGLE0,"Button",BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,67,32,67,12
+
+    CONTROL         "удержание",IDC_CHECK_TOGGLE1,"Button",BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,110,307,49,12
+
+    CONTROL         "удержание",IDC_CHECK_TOGGLE2,"Button",BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,176,279,56,12
+
+    CONTROL         "удержание",IDC_CHECK_TOGGLE3,"Button",BS_AUTOCHECKBOX | BS_MULTILINE | WS_TABSTOP,118,256,56,12
+
+    LTEXT           "Alt+F5",-1,213,184,30,8
+
+END
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////
+
+//
+
+// Bitmap
+
+//
+
+
+
+IDB_BITMAP1             BITMAP                  "exclaim.bmp"
+
+
+
+IDB_BITMAP_UP           BITMAP                  "arrow-up.bmp"
+
+
+
+IDB_BITMAP_LEFT         BITMAP                  "arrow-left.bmp"
+
+
+
+IDB_BITMAP_DOWN         BITMAP                  "arrow-down.bmp"
+
+
+
+IDB_BITMAP_RIGHT        BITMAP                  "arrow-right.bmp"
+
+
+#ifdef APSTUDIO_INVOKED
+
+/////////////////////////////////////////////////////////////////////////////
+
+//
+
+// TEXTINCLUDE
+
+//
+
+
+
+1 TEXTINCLUDE 
+
+BEGIN
+
+    "resource.h\0"
+
+END
+
+
+
+2 TEXTINCLUDE 
+
+BEGIN
+
+    "\0"
+
+END
+
+
+
+3 TEXTINCLUDE 
+
+BEGIN
+
+    "\r\n"
+
+    "\0"
+
+END
+
+
+
+#endif    // APSTUDIO_INVOKED
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////
+
+//
+
+// DESIGNINFO
+
+//
+
+
+
+#ifdef APSTUDIO_INVOKED
+
+GUIDELINES DESIGNINFO
+
+BEGIN
+
+    IDD_DIALOG1, DIALOG
+
+    BEGIN
+
+    END
+
+END
+
+#endif    // APSTUDIO_INVOKED
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////
+
+//
+
+// AFX_DIALOG_LAYOUT
+
+//
+
+
+
+IDD_DIALOG1 AFX_DIALOG_LAYOUT
+
+BEGIN
+
+    0
+
+END
+
+
+
+#endif    // Русский (Россия) resources
+
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+
+
+#ifndef APSTUDIO_INVOKED
+
+/////////////////////////////////////////////////////////////////////////////
+
+//
+
+// Generated from the TEXTINCLUDE 3 resource.
+
+//
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////////////
+
+#endif    // not APSTUDIO_INVOKED
+
+
+
