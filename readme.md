@@ -76,8 +76,8 @@ GZLists               — Шаблоны двунаправленных спис
 ## Сборка
 
 **Требования:**
-- Visual Studio (MSBuild)
-- Intel oneAPI (IPP — Intel Integrated Performance Primitives)
+- Visual Studio 2026 (MSBuild, toolset v145, Windows SDK 10.0.28000.0)
+- Intel oneAPI (IPP — Intel Integrated Performance Primitives), каталог `IPP 2026.0`
 - Windows SDK
 
 **Сборка:**
@@ -85,12 +85,7 @@ GZLists               — Шаблоны двунаправленных спис
 build.bat
 ```
 
-Или открыть `mishkinamish.sln` в Visual Studio.
-
-**Проверка:**
-```
-python check.py
-```
+Или открыть `mishkinamish.sln` в Visual Studio. Результат — `x64\Release\mishkinamish.exe`.
 
 ## Управление
 

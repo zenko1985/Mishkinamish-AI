@@ -1,16 +1,12 @@
 ﻿#include <Windows.h>
-
 #include <stdio.h>
 #include "WAVDump.h"
 #include "resource.h"
-
 static char dump_filename[1024], dump_filename_rename[1024];
 static FILE *fout =
     0;  // не сделал членом класса, чтобы хедер на зависел от <stdio.h>
-
 int MMWAVDump::counter = 0;
 HWND MMWAVDump::hdwnd = 0;
-
 // референс - WAVLoader
 // Вспомогательный класс заголовка WAV-файла
 class GZ_WAVHeader2 {
@@ -30,7 +26,6 @@ class GZ_WAVHeader2 {
   char DATA[4];
   unsigned long DATAsize;
 };
-
 static GZ_WAVHeader2 wh = {{'R', 'I', 'F', 'F'},
                            0,
                            {'W', 'A', 'V', 'E', 'f', 'm', 't', ' '},
@@ -43,17 +38,13 @@ static GZ_WAVHeader2 wh = {{'R', 'I', 'F', 'F'},
                            16,
                            {'d', 'a', 't', 'a'},
                            0};
-
 //============================================================
 // Вызывается кнопкой
 //============================================================
 void MMWAVDump::Start(HWND _hdwnd) {
   SYSTEMTIME st;
-
   hdwnd = _hdwnd;
-
   if (0 != fout) return;
-
   // 1. Соорудим имя файла
   GetLocalTime(&st);
   sprintf_s(dump_filename,
@@ -74,51 +65,39 @@ void MMWAVDump::Start(HWND _hdwnd) {
             st.wHour,
             st.wMinute,
             st.wSecond);
-
   // 2. Откроем же его
   fopen_s(&fout, dump_filename, "wb");
-
   if (0 == fout) return;
-
   // 3. Запишем заголовок
   fwrite(&wh, sizeof(wh), 1, fout);
-
   // 4. Меняем надпись на кнопке диалога
   SetDlgItemText(hdwnd, IDC_BUTTON_WAV_DUMP, L"Остановить запись");
 }
-
 bool MMWAVDump::DumpBuffer(short *buf, int length) {
   if (!fout) return false;
-
   // пишем
   fwrite(buf, length, 1, fout);
-
   // Увеличиваем счётчик
   counter += length;
-
   // максимум у нас будет ~3 Мегабайта
   if (counter > 3000000) {
     Stop();
     return false;
   }
-
   return true;
 }
-
 void MMWAVDump::Stop() {
+  if (!fout) return;  // Защита от null pointer
   // 1. Прописать нормальный header
   wh.DATAsize = counter;
   wh.RIFFsize = counter + 36;
   fseek(fout, 0, SEEK_SET);          // проматываем на начало
   fwrite(&wh, sizeof(wh), 1, fout);  // перезаписываем заголовок
-
   // 2. Закрытие файла
   fclose(fout);
   fout = 0;
-
   // 3. Переименовываем файл
   rename(dump_filename, dump_filename_rename);
-
   // 4. Меняем надпись на кнопке диалога
   SetDlgItemText(hdwnd, IDC_BUTTON_WAV_DUMP, L"Сохранять в WAV");
 }

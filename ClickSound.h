@@ -1,10 +1,7 @@
 ﻿#ifndef __MM_CLICKSOUND
 #define __MM_CLICKSOUND
-
 #include "MMGlobals.h"
-
 #define MM_CLICK_SAMPLES (MM_SOUND_BUFFER_LEN / 2)
-
 class ClickSound {
  public:
   static void Init();
@@ -14,6 +11,6 @@ class ClickSound {
  protected:
   static bool initialized;
   static int remaining_samples;
-  static short ClickSound::samples[2][MM_CLICK_SAMPLES];
+  static short samples[2][MM_CLICK_SAMPLES];
 };
 #endif

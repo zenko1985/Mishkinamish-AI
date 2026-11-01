@@ -4,11 +4,9 @@
 #include <audiopolicy.h>
 #include <endpointvolume.h>
 #include <functiondiscoverykeys_devpkey.h>
-
 #include <process.h>
 #include "OutputThread.h"
 #include "WorkerThread.h"
-
 IAudioClient* OutputThread::audio_client = NULL;
 IAudioRenderClient* OutputThread::render_client = NULL;
 HANDLE OutputThread::hEvent = NULL;
@@ -16,35 +14,29 @@ uintptr_t OutputThread::output_thread_handle = NULL;
 short OutputThread::buf[MM_NUM_OUTPUT_BUFFERS][MM_SOUND_BUFFER_LEN];
 WAVEFORMATEX OutputThread::device_format = {0};
 UINT32 OutputThread::buffer_frame_count = 0;
-
+CRITICAL_SECTION OutputThread::cs_audio_device;
 static volatile bool flag_ShutDownOutputThread = false;
 static volatile bool flag_DoNotWriteBuffers = false;
-
 unsigned __stdcall WaveOutThread(void* p) {
   CoInitializeEx(NULL, COINIT_MULTITHREADED);
-
   while (!flag_ShutDownOutputThread) {
     HANDLE waitHandles[1];
     waitHandles[0] = OutputThread::hEvent;
-
     DWORD waitResult = WaitForMultipleObjects(1, waitHandles, FALSE, 500);
-
     if (waitResult == WAIT_OBJECT_0) {
       if (!flag_ShutDownOutputThread)
         OutputThread::OnSoundData();
     }
   }
-
   CoUninitialize();
   return 0;
 }
-
 int OutputThread::Start(HWND hdwnd) {
+  InitializeCriticalSection(&cs_audio_device);
   // Clean up any existing device
   if (audio_client) {
     CleanUpDevice(hdwnd);
   }
-
   // Create event if needed
   if (!hEvent) {
     hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
@@ -52,12 +44,10 @@ int OutputThread::Start(HWND hdwnd) {
       return 1;
     }
   }
-
   int result = OpenDevice(hdwnd);
   if (result != 0) {
     return result;
   }
-
   // Create thread if needed
   if (!output_thread_handle) {
     output_thread_handle = _beginthreadex(NULL, 0, WaveOutThread, 0, 0, NULL);
@@ -68,39 +58,30 @@ int OutputThread::Start(HWND hdwnd) {
       return 1;
     }
   }
-
   return 0;
 }
-
 int OutputThread::OpenDevice(HWND hdwnd) {
   HRESULT hr;
   IMMDeviceEnumerator* pEnumerator = NULL;
   IMMDevice* pDev = NULL;
-
   hr = CoCreateInstance(
       __uuidof(MMDeviceEnumerator), NULL, CLSCTX_ALL,
       __uuidof(IMMDeviceEnumerator), (void**)&pEnumerator);
-
   if (FAILED(hr) || !pEnumerator) {
     SetWindowTextA(hdwnd, "Не удалось создать MMDeviceEnumerator!");
     return 1;
   }
-
   hr = pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &pDev);
   pEnumerator->Release();
-
   if (FAILED(hr) || !pDev) {
     SetWindowTextA(hdwnd, "Устройство воспроизведения не найдено!");
     return 1;
   }
-
-  REFERENCE_TIME hnsBufferDuration = 1 * 10000;
+  REFERENCE_TIME hnsBufferDuration = 20 * 10000;  // 20ms for USB3 stability
   bool exclusive_mode = false;
-
 #ifndef AUDCLNT_STREAMFLAGS_NOPERSIST
 #define AUDCLNT_STREAMFLAGS_NOPERSIST 0x00040000
 #endif
-
   // Try exclusive mode with device mix format
   IAudioClient* temp_client = NULL;
   hr = pDev->Activate(__uuidof(IAudioClient), CLSCTX_ALL, NULL, (void**)&temp_client);
@@ -130,17 +111,14 @@ int OutputThread::OpenDevice(HWND hdwnd) {
       temp_client->Release();
     }
   }
-
   if (!exclusive_mode) {
     hr = pDev->Activate(
         __uuidof(IAudioClient), CLSCTX_ALL, NULL, (void**)&audio_client);
     pDev->Release();
-
     if (FAILED(hr) || !audio_client) {
       SetWindowTextA(hdwnd, "Не удалось активировать IAudioClient!");
       return 1;
     }
-
     WAVEFORMATEX* pwfx = NULL;
     hr = audio_client->GetMixFormat(&pwfx);
     if (FAILED(hr) || !pwfx) {
@@ -149,9 +127,7 @@ int OutputThread::OpenDevice(HWND hdwnd) {
       audio_client = NULL;
       return 1;
     }
-
     device_format = *pwfx;
-
     hr = audio_client->Initialize(
         AUDCLNT_SHAREMODE_SHARED,
         AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST,
@@ -159,9 +135,7 @@ int OutputThread::OpenDevice(HWND hdwnd) {
         0,
         pwfx,
         NULL);
-
     CoTaskMemFree(pwfx);
-
     if (FAILED(hr)) {
       SetWindowTextA(hdwnd, "Не удалось инициализировать WASAPI render!");
       audio_client->Release();
@@ -171,7 +145,6 @@ int OutputThread::OpenDevice(HWND hdwnd) {
   } else {
     pDev->Release();
   }
-
   hr = audio_client->GetBufferSize(&buffer_frame_count);
   if (FAILED(hr)) {
     SetWindowTextA(hdwnd, "Не удалось получить размер буфера!");
@@ -179,7 +152,6 @@ int OutputThread::OpenDevice(HWND hdwnd) {
     audio_client = NULL;
     return 1;
   }
-
   hr = audio_client->GetService(__uuidof(IAudioRenderClient), (void**)&render_client);
   if (FAILED(hr) || !render_client) {
     SetWindowTextA(hdwnd, "Не удалось получить IAudioRenderClient!");
@@ -187,7 +159,6 @@ int OutputThread::OpenDevice(HWND hdwnd) {
     audio_client = NULL;
     return 1;
   }
-
   hr = audio_client->SetEventHandle(hEvent);
   if (FAILED(hr)) {
     SetWindowTextA(hdwnd, "Не удалось установить event handle!");
@@ -197,14 +168,14 @@ int OutputThread::OpenDevice(HWND hdwnd) {
     audio_client = NULL;
     return 1;
   }
-
   BYTE* pData = NULL;
   hr = render_client->GetBuffer(buffer_frame_count, &pData);
   if (SUCCEEDED(hr)) {
-    ZeroMemory(pData, buffer_frame_count * device_format.nBlockAlign);
+    size_t zero_size = (size_t)buffer_frame_count * device_format.nBlockAlign;
+    if (pData && zero_size > 0)
+      ZeroMemory(pData, zero_size);
     render_client->ReleaseBuffer(buffer_frame_count, AUDCLNT_BUFFERFLAGS_SILENT);
   }
-
   hr = audio_client->Start();
   if (FAILED(hr)) {
     SetWindowTextA(hdwnd, "Не удалось запустить render!");
@@ -214,23 +185,18 @@ int OutputThread::OpenDevice(HWND hdwnd) {
     audio_client = NULL;
     return 1;
   }
-
   return 0;
 }
-
 void OutputThread::ConvertFromTargetFormat(short* src_data, UINT num_frames, BYTE* dst_data, WAVEFORMATEX* dst_format) {
   int dst_channels = dst_format->nChannels;
   int dst_bits = dst_format->wBitsPerSample;
   bool is_float = false;
-
   if (dst_format->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
       dst_format->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
     is_float = true;
   }
-
   for (UINT i = 0; i < num_frames; i++) {
     float sample = src_data[i] / 32768.0f;
-
     for (int ch = 0; ch < dst_channels; ch++) {
       if (is_float) {
         ((float*)dst_data)[i * dst_channels + ch] = sample;
@@ -249,31 +215,37 @@ void OutputThread::ConvertFromTargetFormat(short* src_data, UINT num_frames, BYT
     }
   }
 }
-
 void OutputThread::OnSoundData() {
-  if (!render_client || flag_DoNotWriteBuffers) return;
-
+  EnterCriticalSection(&cs_audio_device);
+  if (!render_client || flag_DoNotWriteBuffers) {
+    LeaveCriticalSection(&cs_audio_device);
+    return;
+  }
   UINT32 num_frames_padding = 0;
   HRESULT hr = audio_client->GetCurrentPadding(&num_frames_padding);
-  if (FAILED(hr)) return;
-
+  if (FAILED(hr)) {
+    LeaveCriticalSection(&cs_audio_device);
+    return;
+  }
   UINT32 num_frames_available = buffer_frame_count - num_frames_padding;
-  if (num_frames_available == 0) return;
-
+  if (num_frames_available == 0) {
+    LeaveCriticalSection(&cs_audio_device);
+    return;
+  }
   BYTE* pData = NULL;
   hr = render_client->GetBuffer(num_frames_available, &pData);
-  if (FAILED(hr)) return;
-
+  if (FAILED(hr)) {
+    LeaveCriticalSection(&cs_audio_device);
+    return;
+  }
   short temp_buf[MM_SOUND_BUFFER_LEN];
   UINT frames_to_write = num_frames_available;
   if (frames_to_write > MM_SOUND_BUFFER_LEN) frames_to_write = MM_SOUND_BUFFER_LEN;
-
   if (WorkerThread::PullData(temp_buf)) {
     ZeroMemory(pData, num_frames_available * device_format.nBlockAlign);
     render_client->ReleaseBuffer(num_frames_available, AUDCLNT_BUFFERFLAGS_SILENT);
     return;
   }
-
   if (device_format.nChannels == 1 && device_format.wBitsPerSample == 16 &&
       device_format.wFormatTag == WAVE_FORMAT_PCM) {
     memcpy(pData, temp_buf, frames_to_write * sizeof(short));
@@ -289,44 +261,38 @@ void OutputThread::OnSoundData() {
       ZeroMemory(pSilence, silence_frames * device_format.nBlockAlign);
     }
   }
-
   render_client->ReleaseBuffer(num_frames_available, 0);
+  LeaveCriticalSection(&cs_audio_device);
 }
-
 void OutputThread::CleanUpDevice(HWND hdwnd) {
+  EnterCriticalSection(&cs_audio_device);
   flag_DoNotWriteBuffers = true;
-
   if (audio_client) {
     audio_client->Stop();
-
     if (render_client) {
       render_client->Release();
       render_client = NULL;
     }
-
     audio_client->Release();
     audio_client = NULL;
   }
-
   flag_DoNotWriteBuffers = false;
+  LeaveCriticalSection(&cs_audio_device);
 }
-
 void OutputThread::Halt(HWND hdwnd) {
   CleanUpDevice(hdwnd);
-
   flag_ShutDownOutputThread = true;
   if (hEvent) {
     SetEvent(hEvent);
   }
-
   if (output_thread_handle) {
     WaitForSingleObject((HANDLE)output_thread_handle, 1000);
     CloseHandle((HANDLE)output_thread_handle);
     output_thread_handle = NULL;
   }
-
   if (hEvent) {
     CloseHandle(hEvent);
     hEvent = NULL;
   }
+  DeleteCriticalSection(&cs_audio_device);
 }

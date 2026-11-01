@@ -1,5 +1,7 @@
 ﻿#include <Windows.h>
-
+#include <ks.h>
+#include <ksmedia.h>
+#include <dbt.h>
 #include "Indicators.h"
 #include "InputThread.h"
 #include "KChFstate.h"
@@ -8,9 +10,7 @@
 #include "WAVDump.h"
 #include "WorkerThread.h"
 #include "resource.h"
-
 extern MModel model;
-
 unsigned long
     iNumDevs;  // Эту переменную используем при InputThread::Start,чтобы понять,
                // что выбрали файл, а не устройство
@@ -18,13 +18,10 @@ HINSTANCE
 GZInst;  // Присваивается в начале программы и используется затем всеми
 HWND hdwnd;
 int window_x = 300, window_y = 50;
-
 HBITMAP hbm_exclaim = 0, hbm_up, hbm_left, hbm_down, hbm_right;
 bool flag_model_changed = false;
-
 int SUWindow();  // дополнительное окно в режиме суперпользователя
 int KCWindow();  // дополнительное окно в режиме суперпользователя
-
 // Потом это вынесем куда-нибудь. Этим пользуются все - и WorkerThread, и
 // CopyShmopy, и Indicators
 volatile bool flag_training_mode = false;
@@ -32,16 +29,11 @@ volatile long training_frame_counter = 0;  // 17-DEC
 volatile long training_mfcc_recorded = 0;
 volatile int training_sound = 0;
 volatile bool flag_move_mouse = false;
-
 volatile bool flag_keep_silence =
     true;  // [27-DEC] - отмена отключения устройства воспроизведения. звук
            // нужен для кликов. теперь обнуляем буфер, когда нужна тишина.
-
 volatile bool flag_wav_dump = false;  // [29-DEC]
-
 volatile int current_device_num = 0;  // Для записи в файл конфигурации
-
-#define MM_NUM_TRAINING_BUTTONS 6
 static int training_buttons[MM_NUM_TRAINING_BUTTONS] = {IDC_BUTTON_TRAIN0,
                                                         IDC_BUTTON_TRAIN1,
                                                         IDC_BUTTON_TRAIN2,
@@ -54,19 +46,17 @@ static int exclaim_controls[MM_NUM_TRAINING_BUTTONS] = {IDC_STATIC_BMP0,
                                                         IDC_STATIC_BMP3,
                                                         IDC_STATIC_BMP4,
                                                         IDC_STATIC_BMP5};
-
 // Это заимствовано из MHook.
 typedef struct {
   TCHAR *stroka;
   WORD value;
 } MHWORDChar;
-
-#define MH_NUM_SCANCODES 106
-
 // Здесь нет PrtScr,Pause
 #ifdef MMISH_ENGLISH
-MHWORDChar dlg_scancodes[MH_NUM_SCANCODES] = {
+MHWORDChar dlg_scancodes[] = {
     {L"<nothing>", 0xFFFF},  // 0
+    {L"Last Epoch", MM_KEY_LASTEPOCH},  // Q+space+E+R
+    {L"Sonic", MM_KEY_SONIC},  // down+C
     {L"up", 0xE048},
     {L"right", 0xE04D},
     {L"down", 0xE050},
@@ -172,8 +162,10 @@ MHWORDChar dlg_scancodes[MH_NUM_SCANCODES] = {
     {L"Left mouse button", 0xFF00},
     {L"Right mouse button", 0xFF01}};
 #else
-MHWORDChar dlg_scancodes[MH_NUM_SCANCODES] = {
+MHWORDChar dlg_scancodes[] = {
     {L"<ничего>", 0xFFFF},  // 0
+    {L"Last Epoch", MM_KEY_LASTEPOCH},  // Q+пробел+E+R
+    {L"Sonic", MM_KEY_SONIC},  // вниз+C
     {L"пробел", 0x39},
     {L"Левая мышь", 0xFF00},
     {L"Правая мышь", 0xFF01},
@@ -280,7 +272,15 @@ MHWORDChar dlg_scancodes[MH_NUM_SCANCODES] = {
     {L"Num 8", 0x48},
     {L"Num 9", 0x49}};  // 100-102
 #endif
-
+//============================================================================================
+// Ищет в списке клавиш индекс по скан-коду
+//============================================================================================
+static int FindScancodeIndex(WORD value) {
+  int j;
+  for (j = 0; j < (int)_countof(dlg_scancodes); j++)
+    if (dlg_scancodes[j].value == value) return j;
+  return -1;
+}
 //============================================================================================
 // Выводит на экран то, что будет нажато
 //============================================================================================
@@ -296,11 +296,10 @@ static void SetKeysInDialogue() {
                      IDC_CHECK_TOGGLE3};
   int i, j;
   bool found;
-
   for (i = 0; i < 6; i++) {
     found = false;
     WORD key = KChFstate::GetKeyToPress(i);
-    for (j = 0; j < MH_NUM_SCANCODES; j++) {
+    for (j = 0; j < (int)_countof(dlg_scancodes); j++) {
       if (key == dlg_scancodes[j].value) {
         found = true;
         SendDlgItemMessage(
@@ -317,21 +316,18 @@ static void SetKeysInDialogue() {
       KChFstate::SetKeyToPress(i, 0xffff);
     }
   }
-
   // Теперь чекбоксы "повтор" и "залипание"
   for (i = 0; i < 4; i++) {
     if (KChFstate::GetRepeatKey(i))  // Корректируем галочку в диалоге
       SendDlgItemMessage(hdwnd, listbox2[i], BM_SETCHECK, BST_CHECKED, 0);
     else
       SendDlgItemMessage(hdwnd, listbox2[i], BM_SETCHECK, BST_UNCHECKED, 0);
-
     if (KChFstate::GetToggleKey(i))  // Корректируем галочку в диалоге
       SendDlgItemMessage(hdwnd, listbox3[i], BM_SETCHECK, BST_CHECKED, 0);
     else
       SendDlgItemMessage(hdwnd, listbox3[i], BM_SETCHECK, BST_UNCHECKED, 0);
   }
 }
-
 //============================================================================================
 // Если что-то не натренировано, рисует восклицательные знаки
 // Вызывать после загрузки и тренировки
@@ -340,7 +336,6 @@ static void SetKeysInDialogue() {
 //============================================================================================
 bool UpdateExclaim(bool hide = false) {
   int i, sounds_ready = 0;
-
   // Первый раз загружаем битмап
   if (!hbm_exclaim)
     hbm_exclaim = (HBITMAP)LoadImage(GZInst,
@@ -349,7 +344,6 @@ bool UpdateExclaim(bool hide = false) {
                                      0,
                                      0,
                                      LR_DEFAULTSIZE);
-
   // Проходим по всем звукам и проверяем наличие звуков в списке
   for (i = 0; i < MM_NUM_TRAINING_BUTTONS; i++) {
     if ((model.IsSoundFilled(i)) || hide) {
@@ -366,7 +360,6 @@ bool UpdateExclaim(bool hide = false) {
                          (LPARAM)hbm_exclaim);
     }
   }
-
   // Резюмирующий восклицательный знак и подпись
   if (sounds_ready < MM_NUM_TRAINING_BUTTONS) {
     // Тут нужен восклицательный знак
@@ -398,11 +391,9 @@ bool UpdateExclaim(bool hide = false) {
     return true;
   }
 }
-
 void StopTrainingMode() {
   int i;
   flag_training_mode = false;
-
   // Показать все кнопки кроме той, что с номером _sound. Ей поменять надпись на
   // "Тренировать"
   for (i = 0; i < MM_NUM_TRAINING_BUTTONS; i++) {
@@ -412,39 +403,30 @@ void StopTrainingMode() {
 #else
       SetDlgItemText(hdwnd, training_buttons[i], L"Тренировать");
 #endif
-
     else
       EnableWindow(GetDlgItem(hdwnd, training_buttons[i]), TRUE);
   }
-
   // В спец. области убираем подсказку
   SetDlgItemText(hdwnd, IDC_STATIC_GROM, L"");
-
   // Возможно, нужны восклицательные знаки
   UpdateExclaim();
-
   // Перерисовать диалог, остались рудименты
   InvalidateRect(hdwnd, NULL, TRUE);
 }
-
 void StartTrainingMode(int _sound) {
   int i;
   RECT r;
-
   // Для кнопок 4 и 5 уводить курсор в начало окна
   if ((4 == _sound) || (5 == _sound)) {
     GetWindowRect(hdwnd, &r);
     SetCursorPos(r.left + 5, r.top + 5);
   }
-
   // Модель будет изменена...
   flag_model_changed = true;
-
   // обнулить ветку модели
   model.Capture();  // Стираем безопасно
   model.EmptySound(_sound);
   model.Release();
-
   // Спрятать все кнопки кроме той, что с номером _sound. Ей поменять надпись на
   // "Прекратить"
   for (i = 0; i < MM_NUM_TRAINING_BUTTONS; i++) {
@@ -457,16 +439,13 @@ void StartTrainingMode(int _sound) {
     else
       EnableWindow(GetDlgItem(hdwnd, training_buttons[i]), FALSE);
   }
-
   training_frame_counter = 0;
   training_mfcc_recorded = 0;
   training_sound = _sound;
   flag_training_mode =
       true;  // Важен порядок, ибо другой поток сначала читает flag...
-
   // Прячем восклицательные знаки и затираем свою подсказку
   UpdateExclaim(true);
-
   // В спец. области выводим подсказку
 #ifdef MMISH_ENGLISH
   SetDlgItemText(
@@ -478,11 +457,9 @@ void StartTrainingMode(int _sound) {
                  IDC_STATIC_GROM,
                  L"Говорите громче уровня шума (отмечен красной полоской)");
 #endif
-
   // Перерисовать диалог, остались рудименты
   InvalidateRect(hdwnd, NULL, TRUE);
 }
-
 // Стартует или прекращает training_mode
 void TrainingButton(int _sound) {
   if (flag_training_mode)
@@ -490,7 +467,6 @@ void TrainingButton(int _sound) {
   else
     StartTrainingMode(_sound);
 }
-
 //================================================================
 // Оконная процедура диалога
 //================================================================
@@ -502,38 +478,59 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
   PAINTSTRUCT ps;
   unsigned long i;
   static WORD ctrl_key = 0;
-
   switch (uMsg) {
     case WM_TIMER:  // Рисуем индикатор уровня и прочее
+      if (wparam == 2) {
+        // Timer #2: device refresh after USB plug/unplug
+        KillTimer(hdwnd, 2);
+        unsigned long old_count = InputThread::GetNumDevices();
+        InputThread::RefreshDevices(hdwnd);
+        unsigned long new_count = InputThread::GetNumDevices();
+        if (old_count != new_count) {
+          SendDlgItemMessage(hdwnd, IDC_COMBO_MIC, CB_RESETCONTENT, 0, 0);
+          for (unsigned long i = 0; i < new_count; i++) {
+            SendDlgItemMessage(
+                hdwnd, IDC_COMBO_MIC, CB_ADDSTRING, 0, (LPARAM)(InputThread::GetDeviceName(i)));
+          }
+#ifdef MMISH_ENGLISH
+          SendDlgItemMessage(hdwnd, IDC_COMBO_MIC, CB_ADDSTRING, 0, (LPARAM)L"Reading from file");
+#else
+          SendDlgItemMessage(hdwnd, IDC_COMBO_MIC, CB_ADDSTRING, 0, (LPARAM)L"Чтение из файла");
+#endif
+          SendDlgItemMessage(hdwnd, IDC_COMBO_MIC, CB_SETCURSEL, 0, 0L);
+        }
+        return 1;
+      }
       hdc = GetDC(hdwnd);
       Indicators::Draw(hdc);
       ReleaseDC(hdwnd, hdc);
-      { 
+      {
         WORD new_ctrl_key = GetKeyState(VK_CONTROL);
         if (new_ctrl_key != ctrl_key) {
           ctrl_key = new_ctrl_key;
           SetKeysInDialogue();
         }
-
       }
       return 1;
-
+    case WM_DEVICECHANGE:
+      // USB device hot-plug: schedule device list refresh
+      if (wparam == DBT_DEVICEARRIVAL || wparam == DBT_DEVICEREMOVECOMPLETE) {
+        SetTimer(hdwnd, 2, 500, NULL);  // Timer #2 for device refresh
+      }
+      return 1;
     case WM_PAINT:
       hdc = BeginPaint(hdwnd, &ps);
       Indicators::Draw(hdc);
       EndPaint(hdwnd, &ps);
       return 0;  // Если вернуть не 0, то будет плохо.
-
     case WM_INITDIALOG:
       // Загрузка положения окна
       window_x = GetPrivateProfileInt(L"Window", L"X", 300, L".\\mishkinamish.ini");
       window_y = GetPrivateProfileInt(L"Window", L"Y", 50, L".\\mishkinamish.ini");
       // 1. Уходим из верхнего левого угла
       SetWindowPos(hdwnd, HWND_TOP, window_x, window_y, 0, 0, SWP_NOSIZE | SWP_NOREDRAW);
-
       // 1.5 Индикаторам требуется наш hdwnd для инициализации
       Indicators::Init(hdwnd);
-
       // 2. Посмотрим, какие есть устройства ввода (WASAPI)
       iNumDevs = InputThread::GetNumDevices();
       // 2.1 Проверить, есть ли вообще звуковые устройства. Ибо если нет -
@@ -555,7 +552,6 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
         EndDialog(hdwnd, 3);
         return 1;
       }
-
       for (i = 0; i < iNumDevs; i++) {
         SendDlgItemMessage(
             hdwnd, IDC_COMBO_MIC, CB_ADDSTRING, 0, (LPARAM)(InputThread::GetDeviceName(i)));
@@ -567,13 +563,11 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
       SendDlgItemMessage(
           hdwnd, IDC_COMBO_MIC, CB_ADDSTRING, 0, (LPARAM)L"Чтение из файла");
 #endif
-
       SendDlgItemMessage(hdwnd,
                          IDC_COMBO_MIC,
                          CB_SETCURSEL,
                          0,
                          0L);  // Иначе там ничего не выбрано
-
       // 2.5
       if (KChFstate::flag_kc_anytime)  // Корректируем галочку в диалоге
         SendDlgItemMessage(
@@ -581,7 +575,6 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
       else
         SendDlgItemMessage(
             hdwnd, IDC_CHECK_IGNORE_KC_INLINE, BM_SETCHECK, BST_CHECKED, 0);
-
       // 2.6. Загружаем битмапы стрелочек
       // Вверх
       hbm_up = (HBITMAP)LoadImage(GZInst,
@@ -628,10 +621,9 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
                          STM_SETIMAGE,
                          IMAGE_BITMAP,
                          (LPARAM)hbm_right);
-
       // 2.7. Загружаем списки кнопок клавиатуры
       // 2. Клавиши
-      for (i = 0; i < MH_NUM_SCANCODES; i++) {
+      for (i = 0; i < (int)_countof(dlg_scancodes); i++) {
         SendDlgItemMessage(hdwnd,
                            IDC_KBD0,
                            CB_ADDSTRING,
@@ -663,13 +655,12 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
                            0,
                            (LPARAM)(dlg_scancodes[i].stroka));
       }
-      SendDlgItemMessage(hdwnd, IDC_KBD0, CB_SETCURSEL, 0, 0L);
-      SendDlgItemMessage(hdwnd, IDC_KBD1, CB_SETCURSEL, 0, 0L);
-      SendDlgItemMessage(hdwnd, IDC_KBD2, CB_SETCURSEL, 0, 0L);
-      SendDlgItemMessage(hdwnd, IDC_KBD3, CB_SETCURSEL, 0, 0L);
-      SendDlgItemMessage(hdwnd, IDC_KBD4, CB_SETCURSEL, 0, 0L);
-      SendDlgItemMessage(hdwnd, IDC_KBD5, CB_SETCURSEL, 0, 0L);
-
+      SendDlgItemMessage(hdwnd, IDC_KBD0, CB_SETCURSEL, FindScancodeIndex(0xFFFF), 0L);
+      SendDlgItemMessage(hdwnd, IDC_KBD1, CB_SETCURSEL, FindScancodeIndex(0xFFFF), 0L);
+      SendDlgItemMessage(hdwnd, IDC_KBD2, CB_SETCURSEL, FindScancodeIndex(0xFFFF), 0L);
+      SendDlgItemMessage(hdwnd, IDC_KBD3, CB_SETCURSEL, FindScancodeIndex(0xFFFF), 0L);
+      SendDlgItemMessage(hdwnd, IDC_KBD4, CB_SETCURSEL, FindScancodeIndex(0xFFFF), 0L);
+      SendDlgItemMessage(hdwnd, IDC_KBD5, CB_SETCURSEL, FindScancodeIndex(0xFFFF), 0L);
       // 3. Стартуем нулевое устройство (первое в списке)
       // Теперь воспроизведение через звуковую карту бывает только для файлов в
       // Release-версии [27-DEC] - отмена. звук нужен для кликов. теперь
@@ -687,15 +678,19 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
         SetWindowTextA(hdwnd, "Не удалось открыть устройство ввода звука!");
 #endif
       }
-
       // 4. Включаем таймер #1 для индикаторов
       SetTimer(hdwnd, 1, 100, NULL);  // 10 раз в секунду
-
       // 5. Регистрируем комбинацию клавиш Alt+F5
       RegisterHotKey(hdwnd, 1, MOD_ALT | MOD_NOREPEAT, VK_F5);  // 0x74
-
+      // 6. Register for device change notifications (USB hot-plug)
+      {
+        DEV_BROADCAST_DEVICEINTERFACE dbdi = {0};
+        dbdi.dbcc_size = sizeof(DEV_BROADCAST_DEVICEINTERFACE);
+        dbdi.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
+        dbdi.dbcc_classguid = KSCATEGORY_AUDIO;
+        RegisterDeviceNotification(hdwnd, &dbdi, DEVICE_NOTIFY_WINDOW_HANDLE);
+      }
       return 1;
-
     case WM_HOTKEY:  // В точности, как у IDOK:
       // Активация / деактивация
       if (flag_move_mouse) {
@@ -714,14 +709,12 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
 #endif
       }
       return 1;
-
     case WM_COMMAND:
       switch (LOWORD(wparam)) {
         case IDCANCEL:
           UnregisterHotKey(hdwnd, 1);  // В 3 местах
           PostQuitMessage(0);
           return (1);
-
         case IDOK:
           // Активация / деактивация
           if (flag_move_mouse) {
@@ -740,7 +733,6 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
 #endif
           }
           return 1;
-
         case IDC_COMBO_MIC:
           if (CBN_SELCHANGE == HIWORD(wparam))  // Выбрали другой микрофон
           {
@@ -758,36 +750,28 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
             return 1;
           } else
             return 0;
-
         case IDC_BUTTON_TRAIN0:
           TrainingButton(0);
           break;
-
         case IDC_BUTTON_TRAIN1:
           TrainingButton(1);
           break;
-
         case IDC_BUTTON_TRAIN2:
           TrainingButton(2);
           break;
-
         case IDC_BUTTON_TRAIN3:
           TrainingButton(3);
           break;
-
         case IDC_BUTTON_TRAIN4:
           TrainingButton(4);
           break;
-
         case IDC_BUTTON_TRAIN5:
           TrainingButton(5);
           break;
-
         case IDC_BUTTON_SAVE:
           if (model.Save(false, hdwnd, L"default.MM1"))
             flag_model_changed = false;
           break;
-
         case IDC_BUTTON_SAVE_AS:
           // Сбивается рабочий каталог и сохранять по умолчанию бессмысленно
           /*
@@ -797,7 +781,6 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
                   EnableWindow( GetDlgItem( hdwnd, IDC_BUTTON_SAVE ), FALSE);
           }*/
           break;
-
         case IDC_BUTTON_LOAD:
           // Сбивается рабочий каталог и сохранять по умолчанию бессмысленно
           /*if(model.Load(hdwnd))
@@ -812,7 +795,6 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
           IDC_BUTTON_SAVE ), FALSE);
           }*/
           break;
-
         case IDC_CHECK_IGNORE_KC_INLINE:
           flag_model_changed = true;
           // Тут можно было как-то wparam контролировать, но не было под рукой
@@ -823,11 +805,8 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
             KChFstate::flag_kc_anytime = false;
           else
             KChFstate::flag_kc_anytime = true;
-
           break;
-
           //===== чекбоксы повтора
-
         case IDC_CHECK_REPEAT0:
           flag_model_changed = true;
           // Тут можно было как-то wparam контролировать, но не было под рукой
@@ -838,9 +817,7 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
             KChFstate::SetRepeatKey(0, 1);
           else
             KChFstate::SetRepeatKey(0, 0);
-
           break;
-
         case IDC_CHECK_REPEAT1:
           flag_model_changed = true;
           // Тут можно было как-то wparam контролировать, но не было под рукой
@@ -851,9 +828,7 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
             KChFstate::SetRepeatKey(1, 1);
           else
             KChFstate::SetRepeatKey(1, 0);
-
           break;
-
         case IDC_CHECK_REPEAT2:
           flag_model_changed = true;
           // Тут можно было как-то wparam контролировать, но не было под рукой
@@ -864,9 +839,7 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
             KChFstate::SetRepeatKey(2, 1);
           else
             KChFstate::SetRepeatKey(2, 0);
-
           break;
-
         case IDC_CHECK_REPEAT3:
           flag_model_changed = true;
           // Тут можно было как-то wparam контролировать, но не было под рукой
@@ -877,11 +850,8 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
             KChFstate::SetRepeatKey(3, 1);
           else
             KChFstate::SetRepeatKey(3, 0);
-
           break;
-
           //===== чекбоксы залипания
-
         case IDC_CHECK_TOGGLE0:
           flag_model_changed = true;
           // Тут можно было как-то wparam контролировать, но не было под рукой
@@ -892,9 +862,7 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
             KChFstate::SetToggleKey(0, 1);
           else
             KChFstate::SetToggleKey(0, 0);
-
           break;
-
         case IDC_CHECK_TOGGLE1:
           flag_model_changed = true;
           // Тут можно было как-то wparam контролировать, но не было под рукой
@@ -905,9 +873,7 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
             KChFstate::SetToggleKey(1, 1);
           else
             KChFstate::SetToggleKey(1, 0);
-
           break;
-
         case IDC_CHECK_TOGGLE2:
           flag_model_changed = true;
           // Тут можно было как-то wparam контролировать, но не было под рукой
@@ -918,9 +884,7 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
             KChFstate::SetToggleKey(2, 1);
           else
             KChFstate::SetToggleKey(2, 0);
-
           break;
-
         case IDC_CHECK_TOGGLE3:
           flag_model_changed = true;
           // Тут можно было как-то wparam контролировать, но не было под рукой
@@ -931,10 +895,8 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
             KChFstate::SetToggleKey(3, 1);
           else
             KChFstate::SetToggleKey(3, 0);
-
           break;
           //=====
-
         case IDC_BUTTON_WAV_DUMP:
           // Start и Stop меняют надпись на кнопке. Для этого hdwnd
           if (flag_wav_dump) {
@@ -945,7 +907,22 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
             flag_wav_dump = true;  // Именно в таком порядке
           }
           break;
-
+        case IDC_BUTTON1:  // Пробел для звука "И": снимаем повтор и удержание
+          flag_model_changed = true;
+          KChFstate::SetKeyToPress(0, 0x39);
+          {
+            int idx = FindScancodeIndex(0x39);
+            if (idx >= 0)
+              SendDlgItemMessage(
+                  hdwnd, IDC_KBD0, CB_SETCURSEL, idx, 0L);
+          }
+          SendDlgItemMessage(
+              hdwnd, IDC_CHECK_REPEAT0, BM_SETCHECK, BST_UNCHECKED, 0);
+          SendDlgItemMessage(
+              hdwnd, IDC_CHECK_TOGGLE0, BM_SETCHECK, BST_UNCHECKED, 0);
+          KChFstate::SetRepeatKey(0, 0);
+          KChFstate::SetToggleKey(0, 0);
+          return 1;
         case IDC_KBD0:
           if (CBN_SELCHANGE == HIWORD(wparam))  // Выбрали другую клавишу
           {
@@ -959,7 +936,6 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
           } else
             return 0;
           break;  // для поддержания общего стиля
-
         case IDC_KBD1:
           if (CBN_SELCHANGE == HIWORD(wparam))  // Выбрали другую клавишу
           {
@@ -973,7 +949,6 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
           } else
             return 0;
           break;  // для поддержания общего стиля
-
         case IDC_KBD2:
           if (CBN_SELCHANGE == HIWORD(wparam))  // Выбрали другую клавишу
           {
@@ -987,7 +962,6 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
           } else
             return 0;
           break;  // для поддержания общего стиля
-
         case IDC_KBD3:
           if (CBN_SELCHANGE == HIWORD(wparam))  // Выбрали другую клавишу
           {
@@ -1001,7 +975,6 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
           } else
             return 0;
           break;  // для поддержания общего стиля
-
         case IDC_KBD4:
           if (CBN_SELCHANGE == HIWORD(wparam))  // Выбрали другую клавишу
           {
@@ -1015,7 +988,6 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
           } else
             return 0;
           break;  // для поддержания общего стиля
-
         case IDC_KBD5:
           if (CBN_SELCHANGE == HIWORD(wparam))  // Выбрали другую клавишу
           {
@@ -1029,18 +1001,15 @@ static BOOL CALLBACK DlgWndProc(HWND hdwnd,
           } else
             return 0;
           break;  // для поддержания общего стиля
-
         default:
           return 0;
       }
       break;
-
     default:
       return 0;
   }
   return 0;
 }
-
 //=======================================================================
 // программа
 //=======================================================================
@@ -1050,22 +1019,17 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR cline, INT)
   HRESULT hrCoInit = CoInitializeEx(NULL, COINIT_MULTITHREADED);
   static MSG msg;  // Сообщение
   GZInst = hInst;
-
 #ifdef MM_SUPERUSER
   SUWindow();  // Это не для всех
   KCWindow();  // Это тоже
 #endif
-
   hdwnd = CreateDialog(
       hInst, MAKEINTRESOURCE(IDD_DIALOG1), NULL, (DLGPROC)DlgWndProc);
-
   ShowWindow(hdwnd, SW_SHOWNORMAL);
-
   // Грузим настройку по умолчанию
   if (model.Load(NULL, L"default.MM1")) {
     // Отображаем, какие клавиши будут нажаты
     SetKeysInDialogue();
-
     if (KChFstate::flag_kc_anytime)  // Корректируем галочку в диалоге
       SendDlgItemMessage(
           hdwnd, IDC_CHECK_IGNORE_KC_INLINE, BM_SETCHECK, BST_UNCHECKED, 0);
@@ -1080,14 +1044,12 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR cline, INT)
       current_device_num,
       0L);
   }
-
   // Инициализация DSP и вычисление MFCC тишины
-  __try {
+  try {
     model.InitSilence();
-  } __except(EXCEPTION_EXECUTE_HANDLER) {
+  } catch (...) {
     // IPP init crashed; will retry in worker thread via CopyShmopy::Init()
   }
-
   // При необходимости напечатать восклицательные знаки
   // Если же модель полностью натренирована, разрешаем работу и пишем на кнопке
   // "Старт" 05-jun-2019 - сразу никогда не запускаем
@@ -1095,7 +1057,6 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR cline, INT)
     // flag_move_mouse=true;
     // SetDlgItemText(hdwnd, IDOK, L"Стоп");
   }
-
   //Цикл обработки сообщений
   while (GetMessage(&msg, NULL, 0, 0)) {
     if (!IsDialogMessage(hdwnd, &msg)) {
@@ -1103,28 +1064,24 @@ int WINAPI WinMain(HINSTANCE hInst, HINSTANCE, LPSTR cline, INT)
       DispatchMessage(&msg);
     }
   }  // while !WM_QUIT
-
   // Дамп звука аккуратно закроем
   if (flag_wav_dump) {
     flag_wav_dump = false;
     MMWAVDump::Stop();  // Именно в таком порядке
   }
-
   // Чистим за собой
   KillTimer(hdwnd, 1);
   WorkerThread::Halt(0);
   InputThread::Halt(0);
   OutputThread::Halt(0);
   Indicators::Halt();
-
   // Сохраняем положение окна
   RECT rc;
   GetWindowRect(hdwnd, &rc);
   wchar_t buf[16];
-  wsprintf(buf, L"%d", rc.left);
+  wsprintf(buf, L"%d", (int)rc.left);
   WritePrivateProfileString(L"Window", L"X", buf, L".\\mishkinamish.ini");
-  wsprintf(buf, L"%d", rc.top);
+  wsprintf(buf, L"%d", (int)rc.top);
   WritePrivateProfileString(L"Window", L"Y", buf, L".\\mishkinamish.ini");
-
   if (hrCoInit == S_OK) CoUninitialize();
 }

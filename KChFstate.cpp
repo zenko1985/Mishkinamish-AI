@@ -1,13 +1,10 @@
 ﻿#include <Windows.h>
-
 #include "Indicators.h"
 #include "KChFstate.h"
-
 volatile int KChFstate::state(0), KChFstate::minlevel(0), KChFstate::counter(0);
 volatile bool KChFstate::flag_kc_anytime = false;
 volatile int KChFstate::next_kc_counter =
     0;  // Через сколько фреймов можно нажать  К/Ч (в упрощенном режиме)
-
 volatile WORD KChFstate::key_to_press[6] = {
     0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff};
 volatile char KChFstate::repeat_key[6] = {0, 0, 0, 0, 0, 0};
@@ -15,17 +12,14 @@ volatile char KChFstate::repeat_key[6] = {0, 0, 0, 0, 0, 0};
 // переключателем
 volatile char KChFstate::toggle_key[6] = {
     0, 0, 0, 0, 0, 0};  // является ли переключателем
-
 int KChFstate::key_state[6] = {0, 0, 0, 0, 0, 0};  // нажата-отжата
 int KChFstate::key_cycle_counter[6] = {
     0, 0, 0, 0, 0, 0};  // Сколько ещё циклов нельзя менять состояние клавиши
-
 #ifdef _DEBUG
 void KCOnTick(int state) {}
 #else
 static void KCOnTick(int state){};  // Если не отладка, то функция пуста
 #endif
-
 //==================================================================================================
 // // может ли к или Ч быть рассмотрена кандидатом на нажатие (в нужное ли время
 // ?) mod. [28-DEC]
@@ -38,7 +32,6 @@ bool KChFstate::IsKCValid() {
       Indicators::KChConfirmed = 1;
       next_kc_counter = 20;
     }
-
     // всегда в упрощенном режиме
     return true;
   } else {
@@ -48,13 +41,11 @@ bool KChFstate::IsKCValid() {
       Indicators::KChConfirmed = 1;
       return true;
     }
-
     // Есть мысль, что и в состоянии 3 всегда valid. Лишь бы уровень сигнала был
     // подходящим. Меняем: return ((2==state)||((3==state)&&(counter<=3));
     return ((2 == state) || (3 == state));
   }
 }
-
 //============================================================
 // Пришёл новый фрейм и его уровень энергии подсчитан [18-dec]
 //============================================================
@@ -63,16 +54,13 @@ void KChFstate::NewFrame(int energy_level) {
   if (flag_kc_anytime) {
     state = 0;
     counter = 0;
-
     // Декремент вызывается из потока WorkingThread, а проверка на 0 и
     // выставление в 20 - в основном потоке Но атомарности ни там ни здесь не
     // нужно, так как: пропуск одного декремента не критичен, запоздание на один
     // фрейм при нажатии некритично.
     if (next_kc_counter > 0) next_kc_counter--;
-
     return;  // чуть не забыл!
   }
-
   switch (state) {
     case 0:
       if (energy_level < minlevel)  // не тот уровень мы считали нижним!
@@ -99,7 +87,6 @@ void KChFstate::NewFrame(int energy_level) {
       }
       KCOnTick(state);  // отладка
       return;
-
     case 1:  // Здесь нам позволено получить всплеск энергии, но не позволено
              // получить понижение энергии
       if (energy_level < minlevel)  // не тот уровень мы считали нижним!
@@ -125,7 +112,6 @@ void KChFstate::NewFrame(int energy_level) {
       // этом состоянии хоть вечность. И счетчик нам не нужен.
       KCOnTick(state);  // отладка
       return;
-
     case 2:
       if (energy_level
           <= minlevel
@@ -153,11 +139,9 @@ void KChFstate::NewFrame(int energy_level) {
         counter = 0;
         return;
       }
-
       KCOnTick(state);  // отладка
       return;  // Единыжды это может быть выполнено. Второй раз - уже перебор
                // фреймов короткого звука.
-
     case 3:
       if ((energy_level > minlevel + 1)
           && counter > 3)  // Не выдержал паузы! Вслед за коротким звуком
@@ -192,7 +176,6 @@ void KChFstate::NewFrame(int energy_level) {
       return;
   }
 }
-
 //=========================================================================================
 // Вспомогательная функция для нажатия на клавишу
 // SendInput содран из Mhook
@@ -200,7 +183,6 @@ void KChFstate::NewFrame(int energy_level) {
 void KChFstate::MM_KeyDown(int i) {
   MM_Key(i, KChFstate::Direction::DOWN);
 }
-
 //=========================================================================================
 // Вспомогательная функция для отпускания клавиши
 // SendInput содран из Mhook
@@ -208,7 +190,6 @@ void KChFstate::MM_KeyDown(int i) {
 void KChFstate::MM_KeyUp(int i) {
   MM_Key(i, KChFstate::Direction::UP);
 }
-
 INPUT createKey(WORD code, KChFstate::Direction dir) {
   INPUT input{};
   input.type = INPUT_KEYBOARD;
@@ -216,25 +197,63 @@ INPUT createKey(WORD code, KChFstate::Direction dir) {
   if (dir == KChFstate::Direction::UP) {
     input.ki.dwFlags |= KEYEVENTF_KEYUP;
   }
-
   if (code > 0xFF)  // Этот скан-код из двух байтов, где первый - E0
   {
     input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
   }
-
-  input.ki.wScan = code;
-
+  input.ki.wScan = code & 0xFF;  // E0 - это префикс, а не часть скан-кода
   return input;
 }
-
+//=========================================================================================
+// Комбинация из двух клавиш: сначала key1, потом key2 (при отпускании - наоборот)
+//=========================================================================================
+static void SendCombo(WORD key1, WORD key2, KChFstate::Direction dir, DWORD delay_ms) {
+  INPUT first = createKey(key1, dir);
+  INPUT second = createKey(key2, dir);
+  if (dir == KChFstate::Direction::DOWN) {
+    SendInput(1, &first, sizeof(INPUT));
+    Sleep(delay_ms);
+    SendInput(1, &second, sizeof(INPUT));
+  } else {
+    SendInput(1, &second, sizeof(INPUT));
+    Sleep(delay_ms);
+    SendInput(1, &first, sizeof(INPUT));
+  }
+}
+static void SendSeq(WORD* keys, int n, KChFstate::Direction dir, DWORD delay_ms) {
+  if (n < 1) return;
+  if (dir == KChFstate::Direction::DOWN) {
+    for (int i = 0; i < n; i++) {
+      INPUT in = createKey(keys[i], dir);
+      SendInput(1, &in, sizeof(INPUT));
+      Sleep(delay_ms);
+    }
+  } else {
+    for (int i = n - 1; i >= 0; i--) {
+      INPUT in = createKey(keys[i], dir);
+      SendInput(1, &in, sizeof(INPUT));
+      Sleep(delay_ms);
+    }
+  }
+}
 void KChFstate::MM_Key(int i, Direction dir) {
+  WORD key = GetKeyToPress(i);
+  if (MM_KEY_LASTEPOCH == key)  // Last Epoch: Q, пробел, E, R
+  {
+    WORD seq[] = {0x10, 0x39, 0x12, 0x13};
+    SendSeq(seq, 4, dir, MM_LASTEPOCH_DELAY_MS);
+    return;
+  }
+  if (MM_KEY_SONIC == key)  // Sonic: вниз, потом C
+  {
+    SendCombo(0xE050, 0x2E, dir, MM_SONIC_DELAY_MS);
+    return;
+  }
   INPUT input[3] = {0};
   int cnt = 1;
-
   if (GetKeyToPress(i) >= 0xFF00)  // Спец.случай. нажатие на кнопки мыши
   {
     input[0].type = INPUT_MOUSE;
-
     if (0xFF00 == GetKeyToPress(i)) {  // левая
       input[0].mi.dwFlags = (dir == UP ? MOUSEEVENTF_LEFTUP : MOUSEEVENTF_LEFTDOWN);
     } else if (0xFF01 == GetKeyToPress(i)) {  // правая
@@ -245,26 +264,22 @@ void KChFstate::MM_Key(int i, Direction dir) {
   } else  // клавиатура
   {
     input[0] = createKey(GetKeyToPress(i), dir);
-
     // Press space after / and G
-    if (GetKeyToPress(i) == 0x22) 
+    if (GetKeyToPress(i) == 0x22)
     {
       cnt = 2;
       input[1] = createKey(0x39, dir);
     }
-
     // Press 1 and 2 after / and G
-    /* if (GetKeyToPress(i) == 0x2B) 
+    /* if (GetKeyToPress(i) == 0x2B)
     {
       cnt = 3;
       input[1] = createKey(0x03, dir);
       input[2] = createKey(0x02, dir);
     }*/
   }
-
-  SendInput(cnt, input, sizeof(INPUT));
+  SendInput(cnt, input, sizeof(INPUT) * cnt);
 }
-
 //=========================================================================================
 // Если вместо мыши нажимаем клавиши, то move обнуляется
 // Диаграмма состояний http://localhost/mmish/kchfstate/trytopress.html
@@ -272,17 +287,14 @@ void KChFstate::MM_Key(int i, Direction dir) {
 LONG KChFstate::TryToPress(int i, LONG move) {
   // Защита от дурака...
   if (i < 0 || i > 5) return move;
-
   // Возможно, клавишу с номером i мы вообще не нажимаем...
   if (GetKeyToPress(i) == 0xffff) return move;
-
   // счётчик. один тик=1/10 секунды. переключатель можно отменить через 2 тика
   // (1/5 секунды)
   if (key_cycle_counter[i] > 0)
     key_cycle_counter[i]--;
   else
     key_cycle_counter[i] = 0;  // Защита от случайного ухода в минус.
-
   // 0 - клавиша не нажата
   if (0 == key_state[i])  //Нажимаем, если move больше граничного значения.
                           //Пусть это будет 3

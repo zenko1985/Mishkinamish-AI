@@ -1,5 +1,4 @@
-#include <Windows.h>
-
+﻿#include <Windows.h>
 #include <gl/GL.h>
 #include <stdio.h>
 #include "MModel.h"
@@ -7,46 +6,38 @@
 #include "CopyShmopy.h"
 #include "KChFstate.h"
 #include "resource.h"
-
 extern volatile int current_device_num;  // Для записи в файл конфигурации
 extern unsigned long
     iNumDevs;  // Эту переменную иcпользуем при InputThread::Start,чтобы понять,
                // что выбрали файл, а не устройство
-
 MModel model;
-
 MModel::MModel()
     : global_min_max_values(), min_max_values(), decision_matrix(), hplane() {
   // Временно
   LoadTestData();
-
   // А вот это - надолго
   InitializeCriticalSection(&belongs_to_me);
-
   // hplane[6][0] — silence MFCC — будет вычислено позже, при первом обращении
   hplane[6][0].defined = false;
 }
-
 void MModel::InitSilence() {
   if (hplane[6][0].defined) return;
   float buf_cas_mel[40] = {0};
   for (int retry = 3; retry--;) {
-    __try {
+    try {
       CopyShmopy::Init();
       CopyShmopy::CS_mel_cep(buf_cas_mel, (float *)(&hplane[6][0].base_point));
       hplane[6][0].defined = true;
       return;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    } catch (...) {
       // IPP dispatch init crashed; retry
     }
   }
 }
-
 MModel::~MModel() {
   // Чистим за собой
   DeleteCriticalSection(&belongs_to_me);
 }
-
 //======================================================================
 // Добавляет в соответствующий список ещё одни коэффициенты
 // Тут же обновить максимальные и минимальные значения по каждой из осей
@@ -58,14 +49,11 @@ void MModel::AddSound(int person, int sound, int modifier, mfcc_t *_mfcc) {
     // Потом здесь печатать ошибку, а пока просто возврат
     return;
   }
-
   // Добавляем в список
   snd_matrix[person][sound][modifier].Add(_mfcc);
-
   // Пересчитаем всё!
   UpdateMinMax();
 }
-
 //===================================================================================
 // [24-DEC] См. тетрадь. Вычисляет t(basepoint) не в середине отрезка, как
 // раньше, а пропорционально границам звуков
@@ -76,7 +64,6 @@ float MModel::ClaculateBasePoint(int from, int to) {
   float t, t1 = -1e10f, t2 = 1e10f, result, numerator, denumerator, A, B, D;
   mfcc_t *mc;  // Для удобства дальнейших записей
   float sigma_kvadrat;
-
   // 1. Для начала переберём все точки звука 'from' и найдём t1
   p_sm = snd_matrix[0][from][0].first;
   while (NULL != p_sm) {
@@ -91,7 +78,6 @@ float MModel::ClaculateBasePoint(int from, int to) {
       p_sm = p_sm->next;
       continue;
     }  // Слишком далеки вы от центра, милейший. Не вам приделы устанавливать.
-
     numerator = 0.0f;
     denumerator = 0.0f;
     for (i = 0; i < 13; i++) {
@@ -108,7 +94,6 @@ float MModel::ClaculateBasePoint(int from, int to) {
     else
       result = 0.1f;  // Этого никогда не должно случиться, B!=A всегда, но
                       // перестрахуемся.
-
     // Ищем максимальный t1
     if (result > t1) t1 = result;
     p_sm = p_sm->next;
@@ -116,7 +101,6 @@ float MModel::ClaculateBasePoint(int from, int to) {
   // Если была только одна точка, сравнение с дисперсией может дать неожиданный
   // результат
   if (t1 < 0.0f) t1 = 0.0f;
-
   // 2. Затем переберём все точки звука 'to' и найдём t2
   if (6 != to)  // У тишины нет точек
   {
@@ -124,7 +108,6 @@ float MModel::ClaculateBasePoint(int from, int to) {
     while (NULL != p_sm) {
       mc = p_sm->element;
       sigma_kvadrat = 0.0f;
-
       // Интересуют только точки в пределах дисперсии
       for (i = 0; i < 13; i++) {
         sigma_kvadrat += (mc->coeff[i] - hplane[to][0].base_point.coeff[i])
@@ -134,7 +117,6 @@ float MModel::ClaculateBasePoint(int from, int to) {
         p_sm = p_sm->next;
         continue;
       }  // Слишком далеки вы от центра, милейший. Не вам приделы устанавливать.
-
       numerator = 0.0f;
       denumerator = 0.0f;
       for (i = 0; i < 13; i++) {
@@ -151,7 +133,6 @@ float MModel::ClaculateBasePoint(int from, int to) {
       else
         result = 0.1f;  // Этого никогда не должно случиться, B!=A всегда, но
                         // перестрахуемся.
-
       // Ищем МИНИМАЛЬНЫЙ t2
       if (result < t2) t2 = result;
       p_sm = p_sm->next;
@@ -162,14 +143,11 @@ float MModel::ClaculateBasePoint(int from, int to) {
   } else {
     t2 = t1;  // тишина
   }
-
   // Тут поставить точку останова и последить за t1 и t2
   // [24-DEC.2]
   t = t1 / (1 + t1 - t2);
-
   return t;
 }
-
 //======================================================================
 // Обновляет минимальные и максимальные значения, чтобы правильно
 // выставить матрицу ModelView
@@ -180,13 +158,11 @@ void MModel::UpdateMinMax() {
   mfcc_t *mc;  // Для удобства дальнейших записей
   mfcc_t average;
   float t;
-
   // Обнуляем текущую статистику по всем данным
   for (i = 0; i < 13; i++) {
     global_min_max_values[i][0] = 0.0f;  // min
     global_min_max_values[i][1] = 0.0f;  // max
   }
-
   int p, s, m;
   bool first_mfcc_in_model =
       true;  // Чтобы перейти от нулей в min/max к координатам первой точки
@@ -206,7 +182,6 @@ void MModel::UpdateMinMax() {
           min_max_values[p][s][m][i][0] = 0.0f;
           min_max_values[p][s][m][i][1] = 0.0f;
         }
-
         // Перебираем все данные в списке mfcc данной модификации звука
         p_sm = snd_matrix[p][s][m].first;
         // Просматриваем весь список и пересчитываем min/max
@@ -223,7 +198,6 @@ void MModel::UpdateMinMax() {
                 || first_mfcc_in_this_sound)
               min_max_values[p][s][m][i][1] =
                   mc->coeff[i];  // Корректировка максимума
-
             // По всем вариантам звука всех людей
             if ((decision_matrix[s][i][0] > mc->coeff[i])
                 || first_mfcc_in_general_sound)
@@ -233,7 +207,6 @@ void MModel::UpdateMinMax() {
                 || first_mfcc_in_general_sound)
               decision_matrix[s][i][1] =
                   mc->coeff[i];  // Корректировка максимума
-
             // По всей модели
             if ((global_min_max_values[i][0] > mc->coeff[i])
                 || first_mfcc_in_model)
@@ -253,7 +226,6 @@ void MModel::UpdateMinMax() {
       }  // for m
     }    // for p
   }      // for s
-
   // [22-DEC] ищем гиперплоскости. Только для person=0, modifier=0
   // 22.1.Берём звук, считаем среднюю и направление – это нулевой столбец
   // матрицы, №6 – это точка нуля. [24-DEC]		Также ищем
@@ -279,7 +251,6 @@ void MModel::UpdateMinMax() {
       hplane[s][0].base_point = average;
       hplane[s][0].defined = true;
       hplane[s][0].sigma_kvadrat = 0.0f;
-
       // [24-DEC] теперь ещё ищем среднеквадратичное отклонение
       // для этого придётся пройтись по списку ещё раз
       p_sm = snd_matrix[0][s][0].first;
@@ -299,7 +270,6 @@ void MModel::UpdateMinMax() {
   }
   // hplane[6][0] вычислим в конструкторе модели. Этот элемент не меняется.
   // По крайней мере, если мы не меняем алгоритм вычисления MFCC
-
   // 22.2 Берём нулевую строку. Вычитаем нулевой звук последовательно из 1..6 –
   // это direction, складываем с 1..6 и делим пополам – это base_point [24-DEC]
   // base_point теперь зависит от того, насколько разбросаны точки от среднего
@@ -322,7 +292,6 @@ void MModel::UpdateMinMax() {
           hplane[i][j].base_point.coeff[x] =
               hplane[j][0].base_point.coeff[x] * t
               + hplane[i][0].base_point.coeff[x] * (1 - t);
-
           // !!! Временно берём только 0.1 от тишины, просто, чтобы посмотреть
           // на работу !!!
           // if(6==j)
@@ -336,7 +305,6 @@ void MModel::UpdateMinMax() {
     }  // for j
   }    // for i
 }
-
 //===============================================================================
 // Рисовать точками данный звук
 // Возможно, в будущем будем рисовать и окантовку!
@@ -347,34 +315,26 @@ void MModel::OGLDraw(
       || (modifier >= MM_Model_Num_Modifiers) || (person < 0) || (sound < 0)
       || (modifier < 0) || (mx < 0) || (mx > 12) || (my < 0) || (my > 12)
       || (mz < 0) || (mz > 12))
-
   {
     // Потом печатать здесь ошибку, если захочешь..
     return;
   }
-
 #ifdef MM_SUPERUSER
-
   // Перебираем все данные в списке mfcc данной модификации звука
   GZSListable<mfcc_t> *p_sm = snd_matrix[person][sound][modifier].first;
   // Просматриваем весь список и пересчитываем min/max
   mfcc_t *mс;  // Для удобства дальнейших записей
-
   glBegin(GL_POINTS);
   while (NULL != p_sm) {
     mс = p_sm->element;
-
     // Ура! Отрисовка!
     // Рисуем обычной фигнёй (без массивов)
     glVertex3f(mс->coeff[mx], mс->coeff[my], mс->coeff[mz]);
-
     p_sm = p_sm->next;
   }  // while p_sm
   glEnd();
-
 #endif
 }
-
 //=================================================================================
 // Проверка, что за звук
 // Возвращаем от 0 до MM_Model_Num_Sounds или
@@ -388,12 +348,10 @@ int MModel::WhichSound(mfcc_t *test, bool first_found) {
   int s, x, sound_num = -1;
   bool matches;
   float x_min, x_max;
-
   // [22-DEC]
   int j;
   float scalar, direction;
   hyperplane_t *hc;
-
   for (s = 0; s < MM_Model_Num_Sounds; s++)  // Из строк перебираем только 6
   {
     // Результат возможен, если hplane[s][0].defined==true;
@@ -431,16 +389,12 @@ int MModel::WhichSound(mfcc_t *test, bool first_found) {
           matches = false;
           break;
         }
-
       }  // hc->defined
-
     }  // for j - столбцы матрицы
     // Момент истины - все скалярные произведения были меньше нуля. Угол тупой.
     // Мы попали.
     if (matches) return s;
-
   }  // for s - строки матрицы
-
   //========================================================================================================
   return -1;
   //========================================================================================================
@@ -475,20 +429,16 @@ int MModel::WhichSound(mfcc_t *test, bool first_found) {
       }
     }
   }
-
   // Всё просмотрели, вот вам результат
   return sound_num;
 }
-
 //====================== Работа с файлами ======================================
 // Содрано из GZ64a-Model
 //==============================================================================
-
 // Переменные для диалога
 static wchar_t *filter_GZM = L"файлы MM1\0*.MM1\0\0";
 static wchar_t filename[1258] = {0};
 static wchar_t filetitle[1258] = {0};
-
 //=========================================================================
 // Сохраняет модель в файл
 // Если такового нет, или явно указано saveas, то спрашивает новое
@@ -496,7 +446,6 @@ static wchar_t filetitle[1258] = {0};
 //=========================================================================
 wchar_t *MModel::Save(bool saveas, HWND hdwnd, wchar_t *_filename) {
   wchar_t error_msg[1024];
-
   if (NULL == _filename) {
     // 1. При необходимости выводим диалог
     if ((0 == filename[0]) || saveas) {
@@ -520,19 +469,15 @@ wchar_t *MModel::Save(bool saveas, HWND hdwnd, wchar_t *_filename) {
                           0,
                           0,
                           0};
-
       // Диалог запроса имени файла
       if (0 == GetSaveFileName(&ofn)) {
         return NULL;
       }
     }
-
     _filename = filename;
   }
-
   FILE *fout = NULL;
   _wfopen_s(&fout, _filename, L"wb");
-
   // 1. Открываем файл в binary mode
   if (NULL == fout) {
     wcscpy_s(error_msg, L"Не могу записать файл '");
@@ -542,29 +487,24 @@ wchar_t *MModel::Save(bool saveas, HWND hdwnd, wchar_t *_filename) {
     MessageBox(hdwnd, error_msg, L"Ошибка", MB_OK);
     return NULL;
   }
-
   // 2. Пошло реальное сохранение
   // 2.1. // [28-DEC] Сигнатура "MM002 ", [23-AUG-2017] Сигнатура "MM003 " -
   // запоминает клавиши для нажатия [25-AUG-2017] Сигнатура "MM004 " -
   // запоминает повторение клавиш [05-JUN-2019] Сигнатура "MM005 " - запоминает
   // залипание клавиш
   fprintf(fout, "MM005 ");
-
   // Перебираем все данные в списке mfcc данной модификации звука
   int person, sound, modifier, num_mfcc;
   GZSListable<mfcc_t> *p_sm;
   mfcc_t *mc;  // Для удобства дальнейших записей
-
   // Пока пишем - никому ничего не трогать !!!
   Capture();
-
   for (person = 0; person < MM_Model_Num_Persons; person++)
     for (sound = 0; sound < MM_Model_Num_Sounds; sound++)
       for (modifier = 0; modifier < MM_Model_Num_Modifiers; modifier++) {
         num_mfcc = snd_matrix[person][sound][modifier].num_elements;
         // пишем количество элементов в этой ветке ( а веток всего 2x6x4=48 )
         fwrite(&num_mfcc, sizeof(num_mfcc), 1, fout);
-
         p_sm = snd_matrix[person][sound][modifier].first;
         while (NULL != p_sm) {
           mc = p_sm->element;
@@ -572,31 +512,23 @@ wchar_t *MModel::Save(bool saveas, HWND hdwnd, wchar_t *_filename) {
           p_sm = p_sm->next;
         }
       }
-
   // Теперь можете что хотите делать с моделью
   Release();
   fwrite((void *)&current_device_num, sizeof(current_device_num), 1, fout);
-
   // [28-DEC]
   fwrite((void *)&KChFstate::flag_kc_anytime,
          sizeof(KChFstate::flag_kc_anytime),
          1,
          fout);
-
   //[23-AUG-2017]
   fwrite((void *)&KChFstate::key_to_press, 6 * sizeof(WORD), 1, fout);
-
   //[25-AUG-2017]
   fwrite((void *)&KChFstate::repeat_key, 6 * sizeof(char), 1, fout);
-
   //[05-JUN-2019]
   fwrite((void *)&KChFstate::toggle_key, 6 * sizeof(char), 1, fout);
-
   fclose(fout);
-
   return filetitle;
 }
-
 //==================================================================================================================================
 // Загружает модель из файла
 // Содрано оттуда же
@@ -604,7 +536,6 @@ wchar_t *MModel::Save(bool saveas, HWND hdwnd, wchar_t *_filename) {
 wchar_t *MModel::Load(HWND hdwnd, wchar_t *_filename) {
   wchar_t error_msg[1024];
   int version = 1;
-
   /*	// -1. Спросим, а не жалко ли уничтожить то, что есть?
           if(!IsEmpty())
           {
@@ -638,18 +569,14 @@ wchar_t *MModel::Load(HWND hdwnd, wchar_t *_filename) {
                         0,
                         0,
                         0};
-
     // Диалог запроса имени файла
     if (0 == GetOpenFileName(&ofn)) {
       return NULL;
     }
-
     _filename = filename;
   }
-
   FILE *fin = NULL;
   _wfopen_s(&fin, _filename, L"rb");
-
   // 1. Открываем файл в binary mode
   if (NULL == fin) {
     if (hdwnd)  // Иногда нам не нужно видеть сообщения об ошибках
@@ -662,18 +589,17 @@ wchar_t *MModel::Load(HWND hdwnd, wchar_t *_filename) {
     }
     return NULL;
   }
-
   // 2. А вот здесь пойдёт загрузка, пора обнулять модель
   Capture();  // берём модель в монопольное владение
   EmptyModel();
-
   // 3. Пошла реальная загрузка
   // 3.1. Сигнатуры "MM00x "
   char signature[6];
   fread(signature, 6, 1, fin);
-
   // Может читать файл конфигурации предыдущих версий
   //[23-AUG-2017]
+  int person, sound, modifier, num_mfcc, i;
+  mfcc_t *new_mfcc = 0;
   if (0 == strncmp("MM005 ", signature, 6))
     version = 5;
   else if (0 == strncmp("MM004 ", signature, 6))
@@ -684,17 +610,16 @@ wchar_t *MModel::Load(HWND hdwnd, wchar_t *_filename) {
     version = 2;
   else if (0 != strncmp("MM001 ", signature, 6))
     goto bad_file;
-
-  int person, sound, modifier, num_mfcc, i;
-  mfcc_t *new_mfcc = 0;
-
+#define MAX_MFCC_PER_SLOT 100000  // Ограничение на количество MFCC в одном слоте
   // Перебираем все 48 веток
   for (person = 0; person < MM_Model_Num_Persons; person++)
     for (sound = 0; sound < MM_Model_Num_Sounds; sound++)
       for (modifier = 0; modifier < MM_Model_Num_Modifiers; modifier++) {
         if (1 != fread(&num_mfcc, sizeof(num_mfcc), 1, fin))
           goto bad_file;  // Количество mfcc в веточке
-
+        // Ограничиваем количество MFCC для защиты от DoS
+        if (num_mfcc < 0 || num_mfcc > MAX_MFCC_PER_SLOT)
+          num_mfcc = MAX_MFCC_PER_SLOT;
         for (i = 0; i < num_mfcc; i++) {
           new_mfcc = new (mfcc_t);
           snd_matrix[person][sound][modifier].Add(new_mfcc);
@@ -703,19 +628,17 @@ wchar_t *MModel::Load(HWND hdwnd, wchar_t *_filename) {
                             // загрузить
         }
       }
-
   // Загрузка завершена, пересчёт границ делаем ДО Release()
   UpdateMinMax();
-
   // Теперь можете что хотите делать с моделью
   Release();
-
-  fread((void *)&current_device_num,
+  if (1 != fread((void *)&current_device_num,
         sizeof(current_device_num),
         1,
-        fin);  // какое устройство выбрать
+        fin)) {
+    current_device_num = 0;  // какое устройство выбрать
+  }
   if ((unsigned long)current_device_num >= iNumDevs) current_device_num = 0;
-
   if (version >= 2)  // с [28-DEC] добавился флаг flag_kc_anytime
   {
     fread((void *)&KChFstate::flag_kc_anytime,
@@ -723,25 +646,27 @@ wchar_t *MModel::Load(HWND hdwnd, wchar_t *_filename) {
           1,
           fin);
   }
-
   if (version >= 3)  // с [23-AUG-2017] добавились клавиши для нажатия
   {
-    fread((void *)&KChFstate::key_to_press, 6 * sizeof(WORD), 1, fin);
+    if (1 != fread((void *)&KChFstate::key_to_press, 6 * sizeof(WORD), 1, fin)) {
+      // Если не удалось прочитать - оставляем значения по умолчанию (0xFFFF)
+      for (int ki = 0; ki < 6; ki++) KChFstate::key_to_press[ki] = 0xFFFF;
+    }
   }
-
   if (version >= 4)  // с [25-AUG-2017] добавились повторы клавиш для нажатия
   {
-    fread((void *)&KChFstate::repeat_key, 6 * sizeof(char), 1, fin);
+    if (1 != fread((void *)&KChFstate::repeat_key, 6 * sizeof(char), 1, fin)) {
+      for (int ki = 0; ki < 6; ki++) KChFstate::repeat_key[ki] = 0;
+    }
   }
-
   if (version >= 5)  // с [05-JUN-2019] добавились повторы клавиш для нажатия
   {
-    fread((void *)&KChFstate::toggle_key, 6 * sizeof(char), 1, fin);
+    if (1 != fread((void *)&KChFstate::toggle_key, 6 * sizeof(char), 1, fin)) {
+      for (int ki = 0; ki < 6; ki++) KChFstate::toggle_key[ki] = 0;
+    }
   }
-
   fclose(fin);
   return filetitle;
-
 bad_file:  // Такого не должно случаться никогда...
   EmptyModel();
   Release();
@@ -754,49 +679,39 @@ bad_file:  // Такого не должно случаться никогда..
   fclose(fin);
   return NULL;
 }
-
 //====================================================================
 // Чистим модель (пока требуется только перед загрузкой)
 //====================================================================
 void MModel::EmptyModel() {
   int person, sound, modifier;
-
   for (person = 0; person < MM_Model_Num_Persons; person++)
     for (sound = 0; sound < MM_Model_Num_Sounds; sound++)
       for (modifier = 0; modifier < MM_Model_Num_Modifiers; modifier++) {
         snd_matrix[person][sound][modifier].EmptyList();
       }
 }
-
 //==============================================================
 // Дамп пределов в виде кода на C
 //==============================================================
 void MModel::DumpC() {
   int s, x, sound_num = -1;
-
   FILE *fout = NULL;
   _wfopen_s(&fout, L"MMDUmp.C", L"w");
-
+  if (!fout) return;  // Защита от null pointer
   fprintf(fout, "// Это загрузить из файла MMDUmp.C в LoadTestData()\n");
-
   // decision_matrix[MM_Model_Num_Sounds][13][2]
-
   float x_min, x_max;
-
   for (s = 0; s < MM_Model_Num_Sounds; s++) {
     // Проверяем все 13 координат
     for (x = 0; x < 13; x++) {
       x_min = model.min_max_values[0][s][0][x][0];
       x_max = model.min_max_values[0][s][0][x][1];
-
       fprintf(fout, "decision_matrix[%d][%d][0]=%ff;\n", s, x, x_min);
       fprintf(fout, "decision_matrix[%d][%d][1]=%ff;\n", s, x, x_max);
     }
   }
-
   fclose(fout);
 }
-
 //================================================================================
 // тестовые данные, пока не реализовал загрузку файла конфигурации
 //================================================================================
@@ -891,18 +806,15 @@ mfcc_t mfcc[7] = {{13.248f,
                    0,
                    0,
                    0}};
-
 // Для отладки
 void MModel::LoadTestData() {
   /*	AddSound(0,0,0,&mfcc[0]);
           AddSound(0,0,0,&mfcc[1]);
           AddSound(0,0,0,&mfcc[2]);
           AddSound(0,0,0,&mfcc[3]);
-
           AddSound(0,0,1,&mfcc[4]);
           AddSound(0,0,1,&mfcc[5]);
           AddSound(0,0,1,&mfcc[6]); */
-
   // Это загрузить из файла MMDUmp.C в LoadTestData()
   decision_matrix[0][0][0] = 11.290342f;
   decision_matrix[0][0][1] = 15.407326f;
